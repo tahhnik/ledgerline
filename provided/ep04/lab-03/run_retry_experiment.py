@@ -71,7 +71,7 @@ def run(bootstrap: str, hosts: dict[int, str], key_file: str,
         admin: AdminClient, idempotent: bool) -> tuple[int, int, int]:
     mode = "safe" if idempotent else "unsafe"
     topic = f"lab03.retry.{mode}.{uuid.uuid4().hex[:8]}"
-    admin.create_topics([NewTopic(topic, 1, 3, {"min.insync.replicas": "2"})])[topic].result(30)
+    admin.create_topics([NewTopic(topic, num_partitions=1, replication_factor=3, config={"min.insync.replicas": "2"})])[topic].result(30)
     wait_topic(admin, topic)
 
     config = producer_config(bootstrap, batched=True)

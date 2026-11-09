@@ -19,7 +19,7 @@ def main() -> int:
     topics = {field: f"lab03.hot.{field}.{uuid.uuid4().hex[:8]}"
               for field in ("merchant_id", "card_id")}
     futures = admin.create_topics([
-        NewTopic(topic, 6, 3, {"min.insync.replicas": "2"}) for topic in topics.values()
+        NewTopic(topic, num_partitions=6, replication_factor=3, config={"min.insync.replicas": "2"}) for topic in topics.values()
     ])
     for future in futures.values():
         future.result(30)

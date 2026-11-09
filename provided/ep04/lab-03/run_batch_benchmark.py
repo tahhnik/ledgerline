@@ -43,7 +43,7 @@ def main() -> int:
     bootstrap = os.environ["BOOTSTRAP"]
     admin = AdminClient({"bootstrap.servers": bootstrap})
     topics = [f"lab03.batch.{name}.{uuid.uuid4().hex[:8]}" for name in ("sync", "batched")]
-    futures = admin.create_topics([NewTopic(name, 6, 3, {"min.insync.replicas": "2"}) for name in topics])
+    futures = admin.create_topics([NewTopic(name, num_partitions=6, replication_factor=3, config={"min.insync.replicas": "2"}) for name in topics])
     for future in futures.values():
         future.result(30)
     sync = run(bootstrap, topics[0], False)

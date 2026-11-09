@@ -44,7 +44,8 @@ def fresh_topic(admin):
 
     def make(partitions: int = 6):
         name = f"test.lab03.{uuid.uuid4().hex[:8]}"
-        admin.create_topics([NewTopic(name, partitions, 3, {"min.insync.replicas": "2"})])[name].result(30)
+        admin.create_topics([NewTopic(name, num_partitions=partitions, replication_factor=3,
+                                       config={"min.insync.replicas": "2"})])[name].result(30)
         wait_for_topic(admin, name, partitions)
         created.append(name)
         return name

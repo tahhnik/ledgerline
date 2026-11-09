@@ -28,3 +28,34 @@ def test_live_topic_matches_the_plan(admin):
     assert configs["min.insync.replicas"].value == "2"
     assert configs["retention.ms"].value == "604800000"
     assert configs["cleanup.policy"].value == "delete"
+
+
+def test_topic_request_is_accepted_by_the_client(monkeypatch):
+    """Regression: NewTopic's 4th positional argument is replica_assignment, not config.
+    Building the request must not trip the client's own validation."""
+    import topic_plan
+    sent = []
+
+    class FakeTopics:
+        topics = {}
+
+    class FakeAdmin:
+        def __init__(self, conf):
+            pass
+
+        def list_topics(self, timeout=None):
+            return FakeTopics()
+
+        def create_topics(self, topics):
+            sent.extend(topics)
+            raise SystemExit("captured")
+
+    monkeypatch.setattr(topic_plan, "AdminClient", FakeAdmin)
+    try:
+        topic_plan.ensure_topic("unused:9092")
+    except SystemExit:
+        pass
+    (topic,) = sent
+    assert topic.replica_assignment is None, "config was passed positionally as replica_assignment"
+    assert topic.replication_factor == 3 and topic.num_partitions == 6
+    assert topic.config.get("min.insync.replicas") == "2"
