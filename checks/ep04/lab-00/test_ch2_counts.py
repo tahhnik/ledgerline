@@ -1,4 +1,4 @@
-"""Task 3: count transactions per card correctly despite duplicates and late data."""
+"""Chapter 2: count transactions per card correctly despite duplicates and late data."""
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 

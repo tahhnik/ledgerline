@@ -1,4 +1,4 @@
-"""Task 4: when does an event become visible to the model?"""
+"""Chapter 3: when does an event become visible to the model?"""
 from datetime import datetime, timedelta, timezone
 
 from freshness import visible_at, worst_case_staleness

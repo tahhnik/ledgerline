@@ -1,4 +1,4 @@
-"""Task 1: split a raw stream into contract-valid and rejected events."""
+"""Chapter 1: split a raw stream into contract-valid and rejected events."""
 import json
 
 from ledgerline.generator import GeneratorConfig, generate

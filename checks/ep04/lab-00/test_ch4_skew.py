@@ -1,4 +1,4 @@
-"""Task 5: the same feature must have the same value offline and online."""
+"""Chapter 4: the same feature must have the same value offline and online."""
 import os
 import time
 
