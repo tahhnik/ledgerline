@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ledgerline"
+version = "1.0.0"
+description = "Ledgerline payment contract and synthetic generator for Poridhi EP04 labs"
+requires-python = ">=3.11"
+dependencies = ["pydantic==2.14.1"]
+
+[tool.setuptools]
+packages = ["ledgerline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
