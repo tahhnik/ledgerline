@@ -1,0 +1,34 @@
+# Single-node Kafka 4.3.2 in KRaft combined mode on EC2 (t3.small, 512 MB heap).
+# LOCAL listener stays on 127.0.0.1 for internal/SSH commands; PLAINTEXT advertises BROKER_IP for the learner VM.
+name: ep04-lab04
+services:
+  kafka:
+    image: apache/kafka:4.3.2
+    container_name: ep04-kafka
+    network_mode: host
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,LOCAL://127.0.0.1:19092,CONTROLLER://127.0.0.1:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${BROKER_IP:-localhost}:9092,LOCAL://127.0.0.1:19092
+      KAFKA_INTER_BROKER_LISTENER_NAME: LOCAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,LOCAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@127.0.0.1:9093
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 5000
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "127.0.0.1:19092"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+volumes:
+  kafka-data:

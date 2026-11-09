@@ -1,64 +1,60 @@
-# Three-node Kafka cluster in KRaft combined mode: each node is a broker and a controller.
-# Clients on the VM use localhost:19092,29092,39092; the nodes talk to each other on the
-# compose network (kafka-N:9092 for replication, kafka-N:9093 for the controller quorum).
+# Authoring only: the learner path is three EC2 hosts (provided/ep04/lab-02/user-data.sh).
+# Same layout as one EC2 host per node: each node runs a KRaft controller (ids 101-103)
+# and a broker (ids 1-3) in separate containers, so a broker can die while the
+# controller quorum stays whole. Clients on this machine use localhost:19094,29094,39094.
 name: ep04-lab02
-x-kafka: &kafka
+x-common: &common
+  CLUSTER_ID: bGVkZ2VybGluZWxhYjAyIQ
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 101@ctrl-1:9093,102@ctrl-2:9093,103@ctrl-3:9093
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+x-controller: &controller
   image: apache/kafka:4.3.2
-  environment: &env
-    CLUSTER_ID: bGVkZ2VybGluZWxhYjAyIQ   # fixed so every learner gets the same cluster
-    KAFKA_PROCESS_ROLES: broker,controller
-    KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
-    KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-    KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-    KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
-    KAFKA_LOG_DIRS: /var/lib/kafka/data
-    KAFKA_NUM_PARTITIONS: 3
-    KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
-    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
-    # Lab-friendly timings: a stalled follower leaves the ISR after 10 s instead of 30 s.
-    KAFKA_REPLICA_LAG_TIME_MAX_MS: 10000
-    KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-    KAFKA_HEAP_OPTS: "-Xms384m -Xmx384m"
+x-broker: &broker
+  image: apache/kafka:4.3.2
   healthcheck:
-    test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9094"]
+    test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
     interval: 5s
     timeout: 10s
     retries: 36
+x-broker-env: &broker-env
+  <<: *common
+  KAFKA_PROCESS_ROLES: broker
+  KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:9094
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_REPLICA_LAG_TIME_MAX_MS: 10000
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+  KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+x-controller-env: &controller-env
+  <<: *common
+  KAFKA_PROCESS_ROLES: controller
+  KAFKA_LISTENERS: CONTROLLER://:9093
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT
+  KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
 services:
-  kafka-1:
-    <<: *kafka
-    container_name: ep04-kafka-1
-    hostname: kafka-1
-    ports: ["19092:9094"]
-    environment:
-      <<: *env
-      KAFKA_NODE_ID: 1
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,EXTERNAL://localhost:19092
-    volumes: [kafka-1:/var/lib/kafka/data]
-  kafka-2:
-    <<: *kafka
-    container_name: ep04-kafka-2
-    hostname: kafka-2
-    ports: ["29092:9094"]
-    environment:
-      <<: *env
-      KAFKA_NODE_ID: 2
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,EXTERNAL://localhost:29092
-    volumes: [kafka-2:/var/lib/kafka/data]
-  kafka-3:
-    <<: *kafka
-    container_name: ep04-kafka-3
-    hostname: kafka-3
-    ports: ["39092:9094"]
-    environment:
-      <<: *env
-      KAFKA_NODE_ID: 3
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092,EXTERNAL://localhost:39092
-    volumes: [kafka-3:/var/lib/kafka/data]
-volumes:
-  kafka-1:
-  kafka-2:
-  kafka-3:
+  ctrl-1: {<<: *controller, container_name: ep04-ctrl-1, hostname: ctrl-1, environment: {<<: *controller-env, KAFKA_NODE_ID: 101}}
+  ctrl-2: {<<: *controller, container_name: ep04-ctrl-2, hostname: ctrl-2, environment: {<<: *controller-env, KAFKA_NODE_ID: 102}}
+  ctrl-3: {<<: *controller, container_name: ep04-ctrl-3, hostname: ctrl-3, environment: {<<: *controller-env, KAFKA_NODE_ID: 103}}
+  broker-1:
+    <<: *broker
+    container_name: ep04-broker-1
+    hostname: broker-1
+    ports: ["19094:9094"]
+    environment: {<<: *broker-env, KAFKA_NODE_ID: 1, KAFKA_ADVERTISED_LISTENERS: "INTERNAL://broker-1:9092,EXTERNAL://localhost:19094"}
+  broker-2:
+    <<: *broker
+    container_name: ep04-broker-2
+    hostname: broker-2
+    ports: ["29094:9094"]
+    environment: {<<: *broker-env, KAFKA_NODE_ID: 2, KAFKA_ADVERTISED_LISTENERS: "INTERNAL://broker-2:9092,EXTERNAL://localhost:29094"}
+  broker-3:
+    <<: *broker
+    container_name: ep04-broker-3
+    hostname: broker-3
+    ports: ["39094:9094"]
+    environment: {<<: *broker-env, KAFKA_NODE_ID: 3, KAFKA_ADVERTISED_LISTENERS: "INTERNAL://broker-3:9092,EXTERNAL://localhost:39094"}
