@@ -1,4 +1,4 @@
-"""Task 5: a compacted topic behaves like a table keyed by card."""
+"""Chapter 5: a compacted topic behaves like a table keyed by card."""
 import time
 
 from confluent_kafka import Consumer, Producer

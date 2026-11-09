@@ -1,4 +1,4 @@
-"""Task 4: the short-retention topic you configured with the CLI."""
+"""Chapter 4: the short-retention topic you configured with the CLI."""
 from confluent_kafka.admin import ConfigResource
 
 

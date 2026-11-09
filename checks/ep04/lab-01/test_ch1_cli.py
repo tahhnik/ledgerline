@@ -1,4 +1,4 @@
-"""Task 1: the topic you created with the CLI."""
+"""Chapter 1: the topic you created with the CLI."""
 
 
 def test_payments_topic_exists_with_three_partitions(admin):

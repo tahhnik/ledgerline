@@ -1,4 +1,4 @@
-"""Task 3: a consumer group commits its position and resumes from it."""
+"""Chapter 3: a consumer group commits its position and resumes from it."""
 from confluent_kafka import Consumer, Producer, TopicPartition
 from ledgerline.generator import GeneratorConfig, generate
 

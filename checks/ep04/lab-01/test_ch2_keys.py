@@ -1,4 +1,4 @@
-"""Task 2: keys decide partitions; partitions keep order."""
+"""Chapter 2: keys decide partitions; partitions keep order."""
 import json
 import time
 from collections import defaultdict
