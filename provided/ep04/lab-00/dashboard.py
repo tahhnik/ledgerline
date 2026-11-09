@@ -25,7 +25,7 @@ def main(path):
         return
     print(f"                          correct total = {sum(correct.values())}")
     print("\ncard        naive  correct")
-    for card in sorted(set(naive) | set(correct), key=lambda c: -abs(naive.get(c, 0) - correct.get(c, 0)))[:8]:
+    for card in sorted(set(naive) | set(correct), key=lambda c: (-abs(naive.get(c, 0) - correct.get(c, 0)), c))[:8]:
         print(f"{card}   {naive.get(card, 0):5}  {correct.get(card, 0):7}")
 
 
