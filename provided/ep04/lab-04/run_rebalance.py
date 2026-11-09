@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import threading
 import time
 from pathlib import Path
 
@@ -16,8 +15,7 @@ from seed_topic import recreate_topics
 from sink_db import connect_db, get_bootstrap, reset_db, summary
 
 
-def seed_even_partitions(bootstrap: str, topic: str, per_partition: int = 100, seed: int = 77) -> int:
-    recreate_topics(bootstrap, [topic], partitions=3)
+def produce_even_partitions(bootstrap: str, topic: str, per_partition: int = 100, seed: int = 77) -> int:
     total = per_partition * 3
     events = [r.event for r in generate(GeneratorConfig(n_events=total, seed=seed))]
     p = Producer({"bootstrap.servers": bootstrap, "acks": "all"})
@@ -31,25 +29,18 @@ def seed_even_partitions(bootstrap: str, topic: str, per_partition: int = 100, s
 def run_simulation(bootstrap: str, mode: str, db_path: str = "sink.db") -> dict[str, int]:
     topic = f"lab04.rebalance.{mode}"
     group = f"lab04-rebalance-{mode}-{int(time.time())}"
-    seed_even_partitions(bootstrap, topic, per_partition=100, seed=77)
-    reset_db(db_path).close()
+    recreate_topics(bootstrap, [topic], partitions=3)
+    conn = reset_db(db_path)
 
-    lock = threading.Lock()
-    assigned_events = [threading.Event() for _ in range(3)]
-    pre_rebalance_done = [threading.Event() for _ in range(3)]
-    release_c2 = threading.Event()
-    c2_closed = threading.Event()
-
-    revoked_members: set[str] = set()
     survivor_revocations = 0
     deliveries_processed = 0
+    watching_rebalance = False
 
-    def worker(idx: int) -> None:
-        nonlocal survivor_revocations, deliveries_processed
-        name = f"c{idx + 1}"
-        pending: dict[int, TopicPartition] = {}
-        phase = {"after_c2_left": False}
+    pending_by_member: list[dict[int, TopicPartition]] = [{}, {}, {}]
+    consumers: list[Consumer] = []
 
+    for idx in range(3):
+        pending = pending_by_member[idx]
         if mode == "cooperative":
             cfg = rebalance_config(bootstrap, group)
             user_on_revoke = make_on_revoke(pending)
@@ -65,81 +56,89 @@ def run_simulation(bootstrap: str, mode: str, db_path: str = "sink.db") -> dict[
 
         c = Consumer(cfg)
 
-        def on_assign(_c: Consumer, parts: list[TopicPartition]) -> None:
-            if parts:
-                assigned_events[idx].set()
-
-        def on_revoke(cons: Consumer, parts: list[TopicPartition]) -> None:
-            nonlocal survivor_revocations
-            with lock:
-                revoked_members.add(name)
-                if idx != 1 and phase["after_c2_left"]:
+        def make_revoke_cb(member_idx: int, cb):
+            def _on_revoke(cons: Consumer, parts: list[TopicPartition]) -> None:
+                nonlocal survivor_revocations
+                if parts and member_idx != 1 and watching_rebalance:
                     survivor_revocations += 1
-            user_on_revoke(cons, parts)
+                cb(cons, parts)
 
-        c.subscribe([topic], on_assign=on_assign, on_revoke=on_revoke)
-        conn = connect_db(db_path)
-        try:
-            # Phase 1: wait until all 3 members hold 1 partition, then read 20 messages on each.
-            deadline = time.time() + 30
-            while not assigned_events[idx].is_set() and time.time() < deadline:
-                c.poll(0.2)
-            for b in assigned_events:
-                b.wait(timeout=20)
+            return _on_revoke
 
+        c.subscribe([topic], on_revoke=make_revoke_cb(idx, user_on_revoke))
+        consumers.append(c)
+
+    c1, c2, c3 = consumers
+    try:
+        # 1. Wait until all 3 members hold exactly 1 partition on the empty topic.
+        deadline = time.time() + 25.0
+        while time.time() < deadline:
+            for c in consumers:
+                c.poll(0.05)
+            if [len(c.assignment()) for c in consumers] == [1, 1, 1]:
+                break
+        else:
+            raise TimeoutError("3 consumers did not stabilize at 1 partition each")
+
+        # 2. Produce 100 records to each of the 3 partitions (300 unique events total).
+        produce_even_partitions(bootstrap, topic, per_partition=100, seed=77)
+
+        # 3. c1 and c3 process all 100 records on their partition and commit; c2 processes 20 and does not commit yet.
+        for idx, target in ((0, 100), (2, 100), (1, 20)):
+            c = consumers[idx]
+            pending = pending_by_member[idx]
             read_here = 0
-            while read_here < 20:
-                msg = c.poll(1.0)
+            step_deadline = time.time() + 15.0
+            while read_here < target and time.time() < step_deadline:
+                msg = c.poll(0.2)
                 if msg is None or msg.error():
                     continue
                 ev = json.loads(msg.value())
-                with lock:
-                    apply_payment(conn, ev, msg.partition(), msg.offset())
-                    deliveries_processed += 1
+                apply_payment(conn, ev, msg.partition(), msg.offset())
+                deliveries_processed += 1
                 pending[msg.partition()] = TopicPartition(msg.topic(), msg.partition(), msg.offset() + 1)
                 read_here += 1
-
-            pre_rebalance_done[idx].set()
-            for b in pre_rebalance_done:
-                b.wait(timeout=20)
-
-            if idx == 1:
-                release_c2.wait(timeout=20)
-                return
-
-            # Survivors commit their own 20 messages before c2 leaves so any replay comes solely from c2's partition.
-            if pending:
+            if idx != 1 and pending:
                 c.commit(offsets=list(pending.values()), asynchronous=False)
                 pending.clear()
-            phase["after_c2_left"] = True
-            release_c2.set()
-            c2_closed.wait(timeout=20)
 
-            idle_deadline = time.time() + 4.0
-            while time.time() < idle_deadline:
-                msg = c.poll(0.5)
+        c2_part = list(pending_by_member[1].keys())[0]
+
+        # 4. Member c2 leaves the group; in cooperative mode its on_revoke commits offset 20.
+        watching_rebalance = True
+        c2.close()
+
+        # 5. Survivors c1 and c3 rebalance and drain c2's reassigned partition through offset 99.
+        drain_deadline = time.time() + 20.0
+        drained_c2 = False
+        while not drained_c2 and time.time() < drain_deadline:
+            for idx in (0, 2):
+                c = consumers[idx]
+                pending = pending_by_member[idx]
+                msg = c.poll(0.1)
                 if msg is None or msg.error():
                     continue
                 ev = json.loads(msg.value())
-                with lock:
-                    apply_payment(conn, ev, msg.partition(), msg.offset())
-                    deliveries_processed += 1
+                apply_payment(conn, ev, msg.partition(), msg.offset())
+                deliveries_processed += 1
                 pending[msg.partition()] = TopicPartition(msg.topic(), msg.partition(), msg.offset() + 1)
-                idle_deadline = time.time() + 2.5
-            if pending:
-                c.commit(offsets=list(pending.values()), asynchronous=False)
-                pending.clear()
-        finally:
-            conn.close()
-            c.close()
-            if idx == 1:
-                c2_closed.set()
+                if msg.partition() == c2_part and msg.offset() >= 99:
+                    drained_c2 = True
 
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(3)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=60)
+        watching_rebalance = False
+        for idx in (0, 2):
+            pending = pending_by_member[idx]
+            if pending:
+                consumers[idx].commit(offsets=list(pending.values()), asynchronous=False)
+                pending.clear()
+    finally:
+        watching_rebalance = False
+        conn.close()
+        for idx in (0, 2):
+            try:
+                consumers[idx].close()
+            except Exception:
+                pass
 
     s = summary(db_path, "payments_dedup")
     return {
