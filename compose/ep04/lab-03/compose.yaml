@@ -1,0 +1,68 @@
+# One parameterised Kafka 4.3.2 KRaft node. Copy this file and fault_proxy.py
+# to each EC2 host, write that host's node.env, then run:
+#   sudo docker compose --env-file node.env up -d
+name: ep04-lab03
+
+services:
+  controller:
+    image: apache/kafka:4.3.2
+    container_name: ep04-lab03-controller
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      CLUSTER_ID: "${CLUSTER_ID}"
+      KAFKA_NODE_ID: "${CONTROLLER_ID}"
+      KAFKA_PROCESS_ROLES: controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "${QUORUM_VOTERS}"
+      KAFKA_LISTENERS: "CONTROLLER://${PRIVATE_IP}:9093"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
+    volumes:
+      - controller-data:/var/lib/kafka/data
+
+  broker:
+    image: apache/kafka:4.3.2
+    container_name: ep04-lab03-kafka
+    restart: unless-stopped
+    network_mode: host
+    depends_on: [controller]
+    environment:
+      CLUSTER_ID: "${CLUSTER_ID}"
+      KAFKA_NODE_ID: "${NODE_ID}"
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "${QUORUM_VOTERS}"
+      KAFKA_LISTENERS: "INTERNAL://${PRIVATE_IP}:9092,EXTERNAL://0.0.0.0:9095"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://${PRIVATE_IP}:9092,EXTERNAL://${PUBLIC_IP}:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_NUM_PARTITIONS: "6"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "3"
+      KAFKA_MIN_INSYNC_REPLICAS: "2"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+      KAFKA_REPLICA_LAG_TIME_MAX_MS: "10000"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - broker-data:/var/lib/kafka/data
+
+  response-proxy:
+    image: python:3.12.16-slim-trixie
+    container_name: ep04-lab03-proxy
+    restart: unless-stopped
+    network_mode: host
+    depends_on: [broker]
+    command: ["python", "/app/fault_proxy.py"]
+    volumes:
+      - ./fault_proxy.py:/app/fault_proxy.py:ro
+      - /run:/run
+
+volumes:
+  controller-data:
+  broker-data:
