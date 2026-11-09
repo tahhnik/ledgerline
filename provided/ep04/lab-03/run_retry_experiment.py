@@ -51,14 +51,16 @@ def consume_ids(bootstrap: str, topic: str) -> list[str]:
         "enable.auto.commit": False,
     })
     consumer.subscribe([topic])
-    ids, idle = [], 0
+    # The first group join on a fresh cluster can take several seconds, so wait up to
+    # 30 s for the first record; after that, stop once the topic has been idle for 3 s.
+    ids, idle, seen_any, deadline = [], 0, False, time.time() + 30
     try:
-        while idle < 3:
+        while (idle < 3) if seen_any else (time.time() < deadline):
             msg = consumer.poll(1.0)
             if msg is None:
                 idle += 1
             elif not msg.error():
-                idle = 0
+                idle, seen_any = 0, True
                 event_id = json.loads(msg.value())["event_id"]
                 if event_id != "warmup":
                     ids.append(event_id)
